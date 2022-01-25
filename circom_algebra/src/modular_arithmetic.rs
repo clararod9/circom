@@ -1,9 +1,11 @@
 use num_bigint::{BigInt, ModInverse, Sign};
 use num_traits::ToPrimitive;
 
+# [derive (Debug)]
 pub enum ArithmeticError {
     DivisionByZero,
     BitOverFlowInShift,
+    
 }
 
 fn modulus(a: &BigInt, b: &BigInt) -> BigInt {
