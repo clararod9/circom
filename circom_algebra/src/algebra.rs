@@ -2,7 +2,7 @@ use super::modular_arithmetic;
 pub use super::modular_arithmetic::ArithmeticError;
 use num_bigint::BigInt;
 use num_traits::{ToPrimitive, Zero};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, LinkedList};
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 
@@ -836,6 +836,8 @@ impl<C: Default + Clone + Display + Hash + Eq> ArithmeticExpression<C> {
     pub fn is_linear(&self) -> bool {
         matches!(self, ArithmeticExpression::Linear { .. })
     }
+
+
 }
 
 // ******************************** Constraint Definition ********************************
@@ -967,6 +969,7 @@ impl<C: Default + Clone + Display + Hash + Eq> Substitution<C> {
         }
         signals
     }
+    
 
     pub fn take_signals(&self) -> HashSet<&C> {
         let cq: C = ArithmeticExpression::constant_coefficient();
@@ -1009,7 +1012,7 @@ where
 }
 
 impl<C: Default + Clone + Display + Hash + Eq> Constraint<C> {
-    fn new(a: HashMap<C, BigInt>, b: HashMap<C, BigInt>, c: HashMap<C, BigInt>) -> Constraint<C> {
+    pub fn new(a: HashMap<C, BigInt>, b: HashMap<C, BigInt>, c: HashMap<C, BigInt>) -> Constraint<C> {
         Constraint { a, b, c }
     }
 
@@ -1078,6 +1081,145 @@ impl<C: Default + Clone + Display + Hash + Eq> Constraint<C> {
         signals.remove(&Constraint::constant_coefficient());
         signals
     }
+
+    pub fn take_signals_quadratic_equality(&self) -> (C, C, C) 
+    where C: Copy
+    {
+        let signals_a: Vec<C> = self.a.keys().cloned().collect();
+        let signals_b: Vec<C> = self.b.keys().cloned().collect();
+        let signals_c: Vec<C> = self.c.keys().cloned().collect();
+        (signals_a[0], signals_b[0], signals_c[0])
+    }
+
+    pub fn take_possible_cloned_monomials(&self) -> HashSet<(C, C)>
+    where C: PartialOrd
+     {
+        let mut monomials = HashSet::new();
+
+        for signal_a in self.a().keys() {
+            for signal_b in self.b().keys() {
+                if signal_a < signal_b {
+                    monomials.insert((signal_a.clone(), signal_b.clone()));
+                }
+                else{
+                    monomials.insert((signal_b.clone(), signal_a.clone()));
+                }
+            }
+        }
+        monomials
+    }
+
+    pub fn take_possible_cloned_strict_monomials(&self, field: &BigInt) -> HashSet<(C, C)>
+    where C: PartialOrd + Copy
+     {
+        let mut monomials = HashSet::new();
+        let mut appears_twice = LinkedList::new();
+
+        for signal_a in self.a().keys() {
+            for signal_b in self.b().keys() {
+                if signal_a < signal_b {
+                    if monomials.contains(&(*signal_a, *signal_b)){
+                        appears_twice.push_back((signal_a, signal_b));
+                    }
+                    else{
+                        monomials.insert((signal_a.clone(), signal_b.clone()));
+                    }
+                }
+                else{
+                    if monomials.contains(&(*signal_b, *signal_a)){
+                        appears_twice.push_back((signal_b, signal_a));
+                    }
+                    else{
+                        monomials.insert((signal_b.clone(), signal_a.clone()));
+                    }
+                }
+            }
+        }
+        //println!("Tamaño de repetidas {}", appears_twice.len());
+        for (signal_a, signal_b) in appears_twice{
+            let coef_1 = modular_arithmetic::mul(self.a().get(signal_a).unwrap(), self.b().get(signal_a).unwrap(), field);
+            let coef_2 = modular_arithmetic::mul(self.a().get(signal_b).unwrap(), self.b().get(signal_a).unwrap(), field);
+            let value = modular_arithmetic::add(&coef_1, &coef_2, field);
+            if value == BigInt::zero(){
+                monomials.remove(&(*signal_a, *signal_b));
+            }
+        }
+
+        monomials
+    }
+
+
+    pub fn take_cloned_monomials(&self, field: &BigInt) -> LinkedList<((C, C), BigInt)>
+    where C: PartialOrd + Copy
+     {
+
+        let mut monomials = LinkedList::new();
+        let mut map_monomials: HashMap<(C, C), BigInt> = HashMap::new();
+
+
+        for (signal_a, coef_a) in self.a(){
+            for (signal_b, coef_b) in self.b(){
+                let new_coef = modular_arithmetic::mul(coef_a, coef_b, field);
+                let monomial;
+                if *signal_a < *signal_b {
+                    monomial = (*signal_a, *signal_b);
+                }
+                else{
+                    monomial = (*signal_b, *signal_a);
+                }
+                match map_monomials.get(&monomial){
+                    Some(coef) =>{
+                        let total_coef = modular_arithmetic::add(&new_coef, &coef, field);
+                        map_monomials.insert(monomial, total_coef);
+                    },
+                    None =>{
+                        map_monomials.insert(monomial, new_coef);
+                    }
+                }
+            }
+        }
+
+        for (monomial, coef) in map_monomials{
+            if coef != BigInt::zero(){
+                monomials.push_back((monomial, coef));
+            }
+        }
+
+        monomials
+    }
+    
+    pub fn get_value_monomial(&self, monomial: (C, C), field: &BigInt) -> BigInt{
+        let mut coef = BigInt::zero();
+
+        match self.a().get(&monomial.0){
+            Some(coef_a) =>{
+                match self.b().get(&monomial.1){
+                    Some(coef_b) =>{
+                        let new_coef = modular_arithmetic::mul(coef_a, coef_b, field);
+                        coef = modular_arithmetic::add(&new_coef, &coef, field);
+                    },
+                    None =>{},
+                }
+            },
+            None =>{},
+        }
+
+        match self.a().get(&monomial.1){
+            Some(coef_a) =>{
+                match self.b().get(&monomial.0){
+                    Some(coef_b) =>{
+                        let new_coef = modular_arithmetic::mul(coef_a, coef_b, field);
+                        coef = modular_arithmetic::add(&new_coef, &coef, field);
+                    },
+                    None =>{},
+                }
+            },
+            None =>{},
+        }
+        coef
+    }
+
+
     pub fn take_signals(&self) -> HashSet<&C> {
         let cc: C = Constraint::constant_coefficient();
         let mut signals = HashSet::new();
@@ -1123,6 +1265,17 @@ impl<C: Default + Clone + Display + Hash + Eq> Constraint<C> {
         Constraint::fix_constraint(constraint, field);
     }
 
+    pub fn apply_substitution_normalize(
+        constraint: &mut Constraint<C>,
+        substitution: &Substitution<C>,
+        field: &BigInt,
+    ) {
+        raw_substitution(&mut constraint.a, substitution, field);
+        raw_substitution(&mut constraint.b, substitution, field);
+        raw_substitution(&mut constraint.c, substitution, field);
+        Constraint::fix_normalize_constraint(constraint, field);
+    }
+
     pub fn remove_zero_value_coefficients(constraint: &mut Constraint<C>) {
         constraint.a = remove_zero_value_coefficients(std::mem::take(&mut constraint.a));
         constraint.b = remove_zero_value_coefficients(std::mem::take(&mut constraint.b));
@@ -1131,6 +1284,10 @@ impl<C: Default + Clone + Display + Hash + Eq> Constraint<C> {
 
     pub fn fix_constraint(constraint: &mut Constraint<C>, field: &BigInt) {
         fix_raw_constraint(&mut constraint.a, &mut constraint.b, &mut constraint.c, field);
+    }
+
+    pub fn fix_normalize_constraint(constraint: &mut Constraint<C>, field: &BigInt) {
+        fix_normalize_raw_constraint(&mut constraint.a, &mut constraint.b, &mut constraint.c, field);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1153,6 +1310,7 @@ impl<C: Default + Clone + Display + Hash + Eq> Constraint<C> {
     pub fn c(&self) -> &HashMap<C, BigInt> {
         &self.c
     }
+    
 
     pub fn is_equality(&self, field: &BigInt) -> bool {
         signal_equals_signal(&self.a, &self.b, &self.c, field)
@@ -1162,12 +1320,27 @@ impl<C: Default + Clone + Display + Hash + Eq> Constraint<C> {
         signal_equals_constant(&self.a, &self.b, &self.c)
     }
 
+    pub fn is_quadratic_equality(&self) -> bool {
+        signal_equals_quadratic_equality(&self.a, &self.b, &self.c)
+    }
+
     pub fn into_arithmetic_expressions(self) -> (ArithmeticExpression<C>, ArithmeticExpression<C>, ArithmeticExpression<C>) {
         (
             ArithmeticExpression::Linear { coefficients: self.a },
             ArithmeticExpression::Linear { coefficients: self.b },
             ArithmeticExpression::Linear { coefficients: self.c }
         )
+    }
+
+    pub fn destruct(self) -> (HashMap<C, BigInt>, HashMap<C, BigInt>, HashMap<C, BigInt>) {
+        (
+            self.a , self.b, self.c
+        )
+    }
+
+    pub fn get_hash_constraint(constraint: &Constraint<usize>, field: &BigInt) -> HashConstraint{
+        let norm_constraint = normalize(constraint.clone(), field);
+        (get_hash(norm_constraint.a()), get_hash(norm_constraint.b()), get_hash(norm_constraint.c()))
     }
 
 }
@@ -1186,6 +1359,8 @@ impl Constraint<usize> {
         Constraint::new(a, b, c)
     }
 }
+
+
 
 // model utils
 type RawExpr<C> = HashMap<C, BigInt>;
@@ -1282,6 +1457,25 @@ where
     }
 }
 
+fn fix_normalize_raw_constraint<C>(a: &mut RawExpr<C>, b: &mut RawExpr<C>, c: &mut RawExpr<C>, field: &BigInt)
+where
+    C: Default + Clone + Display + Hash + Eq,
+{
+    *a = remove_zero_value_coefficients(std::mem::take(a));
+    *b = remove_zero_value_coefficients(std::mem::take(b));
+    *c = remove_zero_value_coefficients(std::mem::take(c));
+    if HashMap::is_empty(a) || HashMap::is_empty(b) {
+        HashMap::clear(a);
+        HashMap::clear(b);
+    } else if is_constant_expression(a) {
+        constant_linear_linear_reduction(a, b, c, field);
+    } else if is_constant_expression(b) {
+        constant_linear_linear_reduction(b, a, c, field);
+    } else{
+        constant_nonlinear_nonlinear_reduction(a, b, c, field);
+    }
+}
+
 fn constant_linear_linear_reduction<C>(
     a: &mut RawExpr<C>,
     b: &mut RawExpr<C>,
@@ -1301,6 +1495,43 @@ fn constant_linear_linear_reduction<C>(
     HashMap::clear(a);
     HashMap::clear(b);
 }
+
+fn constant_nonlinear_nonlinear_reduction<C>(
+    a: &mut RawExpr<C>,
+    b: &mut RawExpr<C>,
+    c: &mut RawExpr<C>,
+    field: &BigInt,
+) where
+    C: Default + Clone + Display + Hash + Eq,
+{
+    let cq: C = ArithmeticExpression::constant_coefficient();
+    match HashMap::remove(a, &cq){
+        Some(constant) =>{
+            ArithmeticExpression::initialize_hashmap_for_expression(c);
+            let mut aux_b: HashMap<C, BigInt> = b.clone();
+            ArithmeticExpression::initialize_hashmap_for_expression(&mut aux_b);
+            ArithmeticExpression::multiply_coefficients_by_constant(&constant, &mut aux_b, field);
+            ArithmeticExpression::multiply_coefficients_by_constant(&BigInt::from(-1), &mut aux_b, field);
+            ArithmeticExpression::add_coefficients_to_coefficients(&aux_b, c, field);
+
+        },
+        None => {},
+    }
+    match HashMap::remove(b, &cq){
+        Some(constant) =>{
+            ArithmeticExpression::initialize_hashmap_for_expression(c);
+            let mut aux_a: HashMap<C, BigInt> = a.clone();
+            ArithmeticExpression::initialize_hashmap_for_expression(&mut aux_a);
+            ArithmeticExpression::multiply_coefficients_by_constant(&constant, &mut aux_a, field);
+            ArithmeticExpression::multiply_coefficients_by_constant(&BigInt::from(-1), &mut aux_a, field);
+            ArithmeticExpression::add_coefficients_to_coefficients(&aux_a, c, field);
+        },
+        _ =>{}, 
+
+    }
+    *c = remove_zero_value_coefficients(std::mem::take(c));
+} 
+
 
 fn signal_equals_signal<C>(a: &RawExpr<C>, b: &RawExpr<C>, c: &RawExpr<C>, field: &BigInt) -> bool
 where
@@ -1329,6 +1560,17 @@ where
         && HashMap::len(c) == 2
 }
 
+fn signal_equals_quadratic_equality<C>(a: &RawExpr<C>, b: &RawExpr<C>, c: &RawExpr<C>) -> bool
+where
+    C: Default + Clone + Display + Hash + Eq,
+{
+    let cq: C = ArithmeticExpression::constant_coefficient();
+    HashMap::len(a) == 1
+        && HashMap::len(b) == 1
+        && !HashMap::contains_key(c, &cq)
+        && HashMap::len(c) == 1
+}
+
 fn is_constant_expression<C>(expr: &RawExpr<C>) -> bool
 where
     C: Default + Clone + Display + Hash + Eq,
@@ -1337,12 +1579,179 @@ where
     HashMap::contains_key(expr, &cq) && HashMap::len(expr) == 1
 }
 
-pub fn normalize(c: Constraint<usize>, _field: &BigInt) -> Constraint<usize> {
-    use std::collections::LinkedList;
-    let _a: LinkedList<_> = c.a.iter().clone().collect();
-    let _b: LinkedList<_> = c.b.iter().clone().collect();
-    let _c: LinkedList<_> = c.c.iter().clone().collect();
-    todo!()
+// Given a expression A and B and a coef coef, returns A + coef * B
+pub fn add_linear_expression<C>(expr_a: &mut HashMap<C, BigInt>, expr_b: &mut HashMap<C, BigInt>, coef: &BigInt, field: &BigInt)
+where
+    C: Default + Clone + Display + Hash + Eq,
+{
+
+    ArithmeticExpression::initialize_hashmap_for_expression(expr_a);
+    ArithmeticExpression::initialize_hashmap_for_expression(expr_b);
+    ArithmeticExpression::multiply_coefficients_by_constant(coef, expr_b, field);
+    ArithmeticExpression::add_coefficients_to_coefficients(
+        expr_b,
+        expr_a,
+        field,
+    );
+    
+}
+
+pub fn get_linear_coefficients_ab(a: &mut HashMap<usize, BigInt>, b: &mut HashMap<usize, BigInt>, field: &BigInt) ->  HashMap<usize, BigInt>{
+
+    let mut new_c: HashMap<usize, BigInt> = HashMap::with_capacity(0);
+    let cq: usize = ArithmeticExpression::constant_coefficient();
+    new_c.insert(cq, BigInt::from(0));
+
+    if *a.get(&cq).unwrap() != BigInt::from(0){
+
+        let value: &BigInt = a.get(&cq).unwrap();
+        let mut aux_b_1: HashMap<usize, BigInt> = b.clone();
+        ArithmeticExpression::multiply_coefficients_by_constant(&value, &mut aux_b_1, &field);
+        ArithmeticExpression::add_coefficients_to_coefficients(&aux_b_1, &mut new_c, &field);
+        a.insert(cq, BigInt::from(0));
+    }
+    if *b.get(&cq).unwrap() != BigInt::from(0){
+        let value: &BigInt = b.get(&cq).unwrap();
+        let mut aux_a_1: HashMap<usize, BigInt> = a.clone();
+        ArithmeticExpression::multiply_coefficients_by_constant(&value, &mut aux_a_1, &field);
+        ArithmeticExpression::add_coefficients_to_coefficients(&aux_a_1, &mut new_c, &field);
+        b.insert(cq, BigInt::from(0));
+
+    }
+    new_c
+}
+
+pub fn get_coefficient_smallest_signal(a: &HashMap<usize, BigInt>) -> BigInt{
+    let mut coefficient: BigInt = BigInt::from(0);
+    let mut vector_aux: Vec<_> = a.iter().clone().collect();
+    vector_aux.sort();
+    let mut pos = 0;
+    let mut found: bool = false;
+    while pos < vector_aux.len() && !found{
+        if *vector_aux[pos].1 != BigInt::from(0) {
+            coefficient = vector_aux[pos].1.clone();
+            found = true;
+        }
+        pos = pos + 1;
+    }
+    coefficient
+}
+
+pub fn is_zero_linear_expression(a: &HashMap<usize, BigInt>) -> bool{
+    let first_coefficient: BigInt = get_coefficient_smallest_signal(a);
+    first_coefficient == BigInt::from(0)
+}
+
+pub fn is_constant_linear_expression(a: &HashMap<usize, BigInt>) -> bool{
+    let vector_aux: Vec<_> = a.iter().clone().collect();
+    let mut pos = 0;
+    let mut found: bool = false;
+    while pos < vector_aux.len() && !found{
+        if *vector_aux[pos].1 != BigInt::from(0) && *vector_aux[pos].0 != ArithmeticExpression::<usize>::constant_coefficient()
+        {
+            found = true;
+        }
+        pos = pos + 1;
+    }
+    !found
+}
+
+
+pub fn normalize(cons: Constraint<usize>, _field: &BigInt) -> Constraint<usize> {
+    let mut new_constraint: Constraint<usize> = Constraint :: empty();
+
+    let mut a: HashMap<_,_> = cons.a;
+    let mut b: HashMap<_,_> = cons.b;
+    let mut c: HashMap<_,_> = cons.c;
+
+    ArithmeticExpression::initialize_hashmap_for_expression(&mut a);
+    ArithmeticExpression::initialize_hashmap_for_expression(&mut b);
+    ArithmeticExpression::initialize_hashmap_for_expression(&mut c);
+
+
+    if is_zero_linear_expression(&a) || is_zero_linear_expression(&b){
+        let first_coef_c: BigInt = get_coefficient_smallest_signal(&c);
+        if first_coef_c != BigInt::from(0){
+            ArithmeticExpression::divide_coefficients_by_constant(&first_coef_c, &mut c, &_field).unwrap();
+            new_constraint.c = c;
+        }
+    }
+    else if is_constant_linear_expression(&a) {
+
+        let const_coef: &BigInt = a.get(&ArithmeticExpression::<usize>::constant_coefficient()).unwrap();
+        ArithmeticExpression::multiply_coefficients_by_constant(&const_coef, &mut b, &_field);
+        ArithmeticExpression::multiply_coefficients_by_constant(&BigInt::from(-1), &mut b, &_field);
+        ArithmeticExpression::add_coefficients_to_coefficients(&b, &mut c, _field);
+        let first_coef_c: BigInt = get_coefficient_smallest_signal(&c);
+        if first_coef_c != BigInt::from(0){
+            ArithmeticExpression::divide_coefficients_by_constant(&first_coef_c, &mut c, &_field).unwrap();
+            new_constraint.c = c;
+        }
+    }
+    else if is_constant_linear_expression(&b) {
+        let const_coef: &BigInt = b.get(&ArithmeticExpression::<usize>::constant_coefficient()).unwrap();
+        ArithmeticExpression::multiply_coefficients_by_constant(const_coef, &mut a, &_field);
+        ArithmeticExpression::multiply_coefficients_by_constant(&BigInt::from(-1), &mut a, &_field);
+        ArithmeticExpression::add_coefficients_to_coefficients(&a, &mut c, _field);
+        let first_coef_c: BigInt = get_coefficient_smallest_signal(&c);
+        if first_coef_c != BigInt::from(0){
+            ArithmeticExpression::divide_coefficients_by_constant(&first_coef_c, &mut c, &_field).unwrap();
+            new_constraint.c = c;
+        }
+    }
+    else{
+        let mut add_c : HashMap<usize, BigInt> = get_linear_coefficients_ab(&mut a, &mut b, &_field);
+        ArithmeticExpression::multiply_coefficients_by_constant(&BigInt::from(-1), &mut add_c, &_field);
+        ArithmeticExpression::add_coefficients_to_coefficients(&add_c, &mut c, _field);
+
+        let mut keys_a: Vec<_> = a.keys().clone().collect();
+        keys_a.sort();
+        let mut keys_b: Vec<_> = b.keys().clone().collect();
+        keys_b.sort();
+        if keys_a >keys_b {
+            let aux: HashMap<_,_> = a;
+            a = b;
+            b = aux; 
+        }
+           
+        // We normalize dividing A and C by the first factor of A 
+        let first_coef_a: BigInt = get_coefficient_smallest_signal(&a);
+        ArithmeticExpression::divide_coefficients_by_constant(&first_coef_a, &mut a, &_field).unwrap();
+        ArithmeticExpression::divide_coefficients_by_constant(&first_coef_a, &mut c, &_field).unwrap();
+            
+        // We normalize dividing B and C by the first factor of B
+        let first_coef_b: BigInt = get_coefficient_smallest_signal(&b);
+        ArithmeticExpression::divide_coefficients_by_constant(&first_coef_b, &mut b, &_field).unwrap();
+        ArithmeticExpression::divide_coefficients_by_constant(&first_coef_b, &mut c, &_field).unwrap();
+
+        new_constraint.a = a;
+        new_constraint.b = b;
+        new_constraint.c = c;
+
+    }
+    Constraint::remove_zero_value_coefficients(&mut new_constraint);
+    new_constraint
+}
+
+
+
+pub type HashConstraint = (Vec<(usize, BigInt)>, Vec<(usize, BigInt)>, Vec<(usize, BigInt)>);
+
+
+// TODO: Revisar si podemos evitar el clone
+pub fn get_hash(expression: &HashMap<usize, BigInt>) -> Vec<(usize, BigInt)>{
+    let mut vector_aux: Vec<(usize, BigInt)> = Vec::new();
+    for (c, v) in expression{
+        vector_aux.push((c.clone(), v.clone()));
+    }
+    vector_aux.sort();
+    vector_aux
+}
+
+
+
+pub fn apply_substitution(expression:&mut HashMap<usize, BigInt>, substitution: &Substitution<usize>, field: &BigInt){
+    raw_substitution(expression, substitution, field);
 }
 
 #[cfg(test)]
@@ -1407,6 +1816,7 @@ mod test {
         assert_eq!(*sub_value, constant_new_coefficient);
     }
 
+    
     #[test]
     fn algebra_constraint_apply_substitution() {
         let field = BigInt::parse_bytes(FIELD.as_bytes(), 10)
@@ -1449,4 +1859,31 @@ mod test {
         assert_eq!(*y_c, expected_y_c);
         assert_eq!(*constant_c, expected_constant_c);
     }
+
+
+    #[test]
+    fn algebra_get_smallest_coefficient() {
+        let field = BigInt::parse_bytes(FIELD.as_bytes(), 10)
+            .expect("generating the big int was not possible");
+        // symbols
+        let x = 1;
+        let y = 2;
+        let constant = C::constant_coefficient();
+
+        // expression: 3x + 3y + 6 = 0
+        let x_c = BigInt::from(3);
+        let y_c = BigInt::from(3);
+        let constant_c = BigInt::from(6);
+        let mut c = HashMap::new();
+        c.insert(x, x_c);
+        c.insert(y, y_c);
+        c.insert(constant, constant_c);
+
+        let expected_coef = BigInt::from(6);
+        let coef = crate::algebra::get_coefficient_smallest_signal(&c);
+        assert_eq!(coef, expected_coef);
+    }
+
+
+ 
 }
