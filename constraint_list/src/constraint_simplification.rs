@@ -580,7 +580,7 @@ fn apply_substitution_to_map_non_linear(
     linear
 }
 
-pub fn _get_affected_constraints(
+pub fn get_affected_constraints(
     storage: &ConstraintStorage,
     map: &SignalToConstraints,
     substitutions: &LinkedList<S>
@@ -750,6 +750,8 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
     use circom_algebra::simplification_utils::build_encoded_fast_substitutions;
     use circom_algebra::simplification_utils::fast_encoded_constraint_substitution;
     use std::time::SystemTime;
+    use std::sync::mpsc;
+    use threadpool::ThreadPool;
 
     let mut substitution_log =
         if smp.port_substitution { Some(SubstitutionJSON::new(SUB_LOG).unwrap()) } else { None };
@@ -987,6 +989,7 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
 
 
     let mut new_clusters  = build_clusters_nonlinear(&constraint_storage);
+    let mut apply_only_affected = true;
     let now = SystemTime::now();
 
     while apply_round_non_linear{
@@ -1015,14 +1018,19 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
             &field,
         );
 
-        //let mut affected_constraints = get_affected_constraints(&constraint_storage, &non_linear_map, &substitutions);
+        let mut affected_constraints = get_affected_constraints(&constraint_storage, &non_linear_map, &substitutions);
 
         // println!("------------Eliminacion no lineal---------------");
         // println!("Numero de nuevas lineales: {}", linear.len());
         // println!("Numero de señales eliminadas: {}", substitutions.len());
 
         let mut apply_round_linear = !linear.is_empty();
-        apply_round_non_linear = substitutions.len() > 0|| !to_delete.is_empty();
+        if apply_only_affected{
+            apply_round_non_linear = true;
+        }
+        else{
+            apply_round_non_linear = substitutions.len() > 0|| !to_delete.is_empty();
+        }
         if substitutions.len() > 0 {
             iterations_non_linear = iterations_non_linear + 1;
         }
@@ -1052,7 +1060,7 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
                &field,
            );
 
-            //affected_constraints.append(&mut get_affected_constraints(&constraint_storage, &non_linear_map, &substitutions));
+            affected_constraints.append(&mut get_affected_constraints(&constraint_storage, &non_linear_map, &substitutions));
 
             total_eliminated = total_eliminated + substitutions.len();
 
@@ -1078,7 +1086,47 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
             }
         }
 
-        new_clusters = build_clusters_nonlinear(&constraint_storage);
+        new_clusters = LinkedList::new();
+        let (cluster_tx, simplified_rx) = mpsc::channel();
+        let pool = ThreadPool::new(num_cpus::get());
+        let mut no_clusters = 0;
+        //println!("Clusters: {}", no_clusters);
+
+        for cluster in affected_constraints {
+            no_clusters = no_clusters + 1;
+            let cluster_tx = cluster_tx.clone();
+
+            // let config = crate::non_linear_simplification::NonLinearClustersConfig {
+            //     field: field.clone(),
+            //     storage: cluster,
+            //     no_labels: 
+            // };
+            let field_copy = field.clone();
+            let job = move || {
+                let clusters = build_clusters_nonlinear(
+                    &cluster,
+                );
+                cluster_tx.send(clusters).unwrap();
+            };
+            ThreadPool::execute(&pool, job);
+        }
+        ThreadPool::join(&pool);
+        for _ in 0..no_clusters {
+            let mut clusters = simplified_rx.recv().unwrap();
+
+            LinkedList::append(&mut new_clusters, &mut clusters);
+        }
+
+        if new_clusters.is_empty(){
+            //println!("Aplica a todos los clusters");
+            apply_only_affected = false;
+            new_clusters = build_clusters_nonlinear(&constraint_storage);
+        }
+        else{
+            apply_only_affected = true;
+        }
+
+        //new_clusters = build_clusters_nonlinear(&constraint_storage);
 
 
     }
@@ -1089,9 +1137,9 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
 
     println!("--------------COMPLETED SIMPLIFICATION----------------");    
     println!("Number of eliminated constraints: {}", total_eliminated);
-    println!("Number of lineal constraints deduced from non-linear constraints: {}", linear_extracted_non_linear);
-    println!("Number of different lineal constraints deduced from non-linear constraints: {}", deduced_constraints.len());
-    println!("Number of lineal constraints obtained via simplifications: {}", linear_obtained_after_simplification);
+    //println!("Number of lineal constraints deduced from non-linear constraints: {}", linear_extracted_non_linear);
+    //println!("Number of different lineal constraints deduced from non-linear constraints: {}", deduced_constraints.len());
+    //println!("Number of lineal constraints obtained via simplifications: {}", linear_obtained_after_simplification);
     println!("Number of iterations: {}", iterations_non_linear);
     let dur = now.elapsed().unwrap().as_millis();
     println!("TIME: {} ms", dur);
