@@ -327,7 +327,7 @@ fn non_linear_simplification(
     clusters: LinkedList<ConstraintStorage>,
     forbidden: Arc<HashSet<usize>>,
     field: &BigInt,
-) -> (LinkedList<S>, LinkedList<C>, LinkedList<usize>, usize) {
+) -> (LinkedList<S>, LinkedList<C>, LinkedList<Vec<usize>>, usize) {
     use circom_algebra::simplification_utils::full_simplification;
     use circom_algebra::simplification_utils::Config;
     use std::sync::mpsc;
@@ -1078,12 +1078,30 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
         }
 
         //println!("Posibles eliminaciones {:?}", to_delete.len());
+        let mut deleted_constraints: HashSet<usize> = HashSet::new();
+
         for possible_delete in to_delete{
-            
-            if !constraint_storage.read_constraint(possible_delete).unwrap().is_empty() {
-                total_eliminated = total_eliminated + 1;
-                constraint_storage.replace(possible_delete, C::empty());
+            let mut is_valid = true;
+            for c in &possible_delete{
+                if deleted_constraints.contains(c){
+                    is_valid = false;
+                }
             }
+            if is_valid {
+                let mut found_not_eliminated = false;
+                let mut i = 0;
+
+                while !found_not_eliminated && i < possible_delete.len() {
+                    if !constraint_storage.read_constraint(possible_delete[i]).unwrap().is_empty() {
+                        total_eliminated = total_eliminated + 1;
+                        constraint_storage.replace(possible_delete[i], C::empty());
+                        found_not_eliminated = true;
+                        deleted_constraints.insert(possible_delete[i]);
+                    }
+                    i = i + 1;
+                }
+            }
+            
         }
 
         new_clusters = LinkedList::new();

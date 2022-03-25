@@ -16,7 +16,7 @@ pub struct ClusterInfo{
 
 
 
-pub fn obtain_linear_constraints(config: NonLinearConfig) -> (LinkedList<C>, LinkedList<usize>) {
+pub fn obtain_linear_constraints(config: NonLinearConfig) -> (LinkedList<C>,LinkedList<Vec<usize>>) {
     let cluster_info = compute_map_monomials(&config.storage, &config.field);
     generate_constraints(&cluster_info, &config.field)
 }
@@ -51,7 +51,7 @@ pub fn compute_map_monomials(storage: &ConstraintStorage, field: &BigInt) -> Clu
 }
 
 pub fn generate_constraints(cluster_info: &ClusterInfo, field: &BigInt) 
--> (LinkedList<Constraint<usize>>, LinkedList<usize>){
+-> (LinkedList<Constraint<usize>>, LinkedList<Vec<usize>>){
     let system_constraints = generate_system_cluster(&cluster_info.map_monomials_constraints);
     // let mut j = 1;
     //     for x in system_constraints.clone(){
@@ -100,7 +100,7 @@ fn get_new_constraints(
     simplified: &Simplified,
     storage: &Vec<(C, usize)>,
     field: &BigInt,
-)-> (LinkedList<Constraint<usize>>, LinkedList<usize>)
+)-> (LinkedList<Constraint<usize>>, LinkedList<Vec<usize>>)
 {
     let mut used_constraints: HashMap<ConstraintID, LinkedList<(ConstraintID, BigInt)>> = HashMap::new();
     for subs in &simplified.substitutions{
@@ -137,7 +137,13 @@ fn get_new_constraints(
                 //total_possible_eliminate.push_back(storage[*c_id].1);
             }
             else{
-                total_possible_eliminate.push_back(storage[*c_id].1);
+                let mut possible_eliminate = Vec::new();
+                possible_eliminate.push(storage[*c_id].1);
+                for (cid, _) in list_cid{
+                    possible_eliminate.push(storage[*cid].1);
+                }
+                //possible_eliminate.sort();
+                total_possible_eliminate.push_back(possible_eliminate);
             }
     }
     (new_constraints, total_possible_eliminate)
@@ -153,10 +159,10 @@ fn generate_new_constraint(
     let mut new_linear = storage[c_id].0.c().clone();
 
 
-    let mut list =  vec!(storage[c_id].1);
-    for cid in map_cid{
-        list.push(storage[cid.0].1);
-    }
+    //let mut list =  vec!(storage[c_id].1);
+    //for cid in map_cid{
+    //    list.push(storage[cid.0].1);
+    //}
 
     for (cid_aux, coef_aux) in map_cid{
         let mut c_constraint = storage[*cid_aux].0.c().clone();

@@ -27,7 +27,7 @@ pub struct NonLinearConfig {
 }
 
 pub fn deduce_linear_constraints(config: NonLinearConfig)
- -> (LinkedList<Constraint<usize>>, LinkedList<usize>)
+ -> (LinkedList<Constraint<usize>>, LinkedList<Vec<usize>>)
 {
 
     let config = crate::non_linear_simplification::NonLinearConfig {
