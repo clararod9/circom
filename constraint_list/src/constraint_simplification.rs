@@ -1051,12 +1051,12 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
     println!("--------------COMPLETED SIMPLIFICATION----------------");    
     println!("Number of eliminated constraints: {}", total_eliminated);
     println!("Number of lineal constraints deduced from non-linear constraints: {}", linear_extracted_non_linear);
-    println!("Number of different lineal constraints deduced from non-linear constraints: {}", deduced_constraints.len());
+    //println!("Number of different lineal constraints deduced from non-linear constraints: {}", deduced_constraints.len());
     println!("Number of lineal constraints obtained via simplifications: {}", linear_obtained_after_simplification);
     println!("Number of iterations: {}", iterations_non_linear);
     let dur = now.elapsed().unwrap().as_millis();
     println!("TIME: {} ms", dur);
-
+    println!("-----------------------------------------------------"); 
 
     //remove_redundant_constraints(&mut constraint_storage, &field);
 
