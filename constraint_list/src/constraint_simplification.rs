@@ -1029,6 +1029,9 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
             }
             // println!("Iteration no {} took {} ms", round_id, dur);
         }
+        for constraint in linear {
+            constraint_storage.add_constraint(constraint);
+        }
 
         //println!("Posibles eliminaciones {:?}", to_delete.len());
         for possible_delete in to_delete{
