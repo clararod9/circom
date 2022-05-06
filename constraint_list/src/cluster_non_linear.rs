@@ -131,13 +131,15 @@ fn get_new_constraints(
     let mut new_constraints = LinkedList::new();
     let mut total_possible_eliminate = LinkedList::new();
     for (c_id, list_cid) in &used_constraints{
-            let constraint = generate_new_constraint(*c_id, list_cid, storage, field);
-            if !constraint.is_empty(){
-                new_constraints.push_back(constraint);
-                //total_possible_eliminate.push_back(storage[*c_id].1);
-            }
-            else{
-                total_possible_eliminate.push_back(storage[*c_id].1);
+            if list_cid.len()> 0{
+                let constraint = generate_new_constraint(*c_id, list_cid, storage, field);
+                if !constraint.is_empty(){
+                    new_constraints.push_back(constraint);
+                    //total_possible_eliminate.push_back(storage[*c_id].1);
+                }
+                else{
+                    total_possible_eliminate.push_back(storage[*c_id].1);
+                }
             }
     }
     (new_constraints, total_possible_eliminate)
