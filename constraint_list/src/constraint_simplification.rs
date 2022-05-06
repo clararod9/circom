@@ -941,6 +941,7 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
     let mut iterations_non_linear = 0;
     let mut iterations_linear = 0;
     let mut deduced_constraints = HashSet::new();
+    lconst = LinkedList::new();
 
 
     //let mut non_linear_set = build_non_linear_hashset(&mut constraint_storage, &field);
@@ -952,7 +953,7 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
 
     while apply_round_non_linear{
         //println!("Numero de clusters {}", new_clusters.len());
-        let (substitutions, _, to_delete, num_new_linear) = non_linear_simplification(
+        let (substitutions, mut constants, to_delete, num_new_linear) = non_linear_simplification(
             &mut substitution_log,
             &mut deduced_constraints,
             new_clusters,
@@ -966,8 +967,14 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
         for sub in &substitutions {
             deleted.insert(*sub.from());
         }
-        
 
+        lconst.append(&mut constants);
+        for constraint in &mut lconst {
+            for substitution in &substitutions {
+                C::apply_substitution(constraint, substitution, &field);
+            }
+        }
+        
         let mut linear = apply_substitution_to_map_non_linear(
             &mut constraint_storage,
             &mut non_linear_map,
@@ -993,7 +1000,7 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
 
             let now = SystemTime::now();
             // println!("Number of linear constraints: {}", linear.len());
-            let (substitutions, _) = linear_simplification(
+            let (substitutions, mut constants) = linear_simplification(
                 &mut substitution_log,
                 linear,
                 Arc::clone(&forbidden),
@@ -1003,6 +1010,12 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
     
             for sub in &substitutions {
                 deleted.insert(*sub.from());
+            }
+            lconst.append(&mut constants);
+            for constraint in &mut lconst {
+                for substitution in &substitutions {
+                    C::apply_substitution(constraint, substitution, &field);
+                }
             }
 
             linear = apply_substitution_to_map_non_linear(
@@ -1029,9 +1042,7 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
             }
             // println!("Iteration no {} took {} ms", round_id, dur);
         }
-        for constraint in linear {
-            constraint_storage.add_constraint(constraint);
-        }
+
 
         //println!("Posibles eliminaciones {:?}", to_delete.len());
         for possible_delete in to_delete{
@@ -1046,7 +1057,9 @@ pub fn simplification(smp: &mut Simplifier) -> (ConstraintStorage, SignalMap) {
 
 
     }
-
+    for constraint in lconst {
+        constraint_storage.add_constraint(constraint);
+    }
 
     //}
     
